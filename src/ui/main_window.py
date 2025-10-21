@@ -164,7 +164,7 @@ class MainWindow(QMainWindow):
         material_btn_layout.addStretch()
         tab_layout.addLayout(material_btn_layout)
 
-        material_helper = QLabel("예: material-concrete → A-CONC, 색상은 #RRGGBB 또는 BYLAYER 입력")
+        material_helper = QLabel("예: material-concrete → A-CONC, 색상은 #RRGGBB, BYLAYER, 또는 ACI 색상 번호(예: 1) 입력")
         material_helper.setWordWrap(True)
         tab_layout.addWidget(material_helper)
 

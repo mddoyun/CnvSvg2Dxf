@@ -496,6 +496,13 @@ def parse_color_spec(value: str | None, fallback: str | None = None) -> str | No
         return "BYLAYER"
     if spec.lower() == "byblock":
         return "BYBLOCK"
+    if spec.isdigit():
+        try:
+            aci = int(spec)
+            if 1 <= aci <= 255:
+                return spec  # ACI 숫자를 문자열 그대로 반환
+        except ValueError:
+            pass
     if spec.startswith("#"):
         try:
             return normalize_hex(spec)

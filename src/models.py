@@ -95,8 +95,14 @@ class LayerAttributes:
 
     def to_dxf_attribs(self) -> Dict[str, Any]:
         attribs: Dict[str, Any] = {"layer": self.layer}
-        if self.color and self.color.upper() != "BYLAYER":
-            attribs["true_color"] = parse_rgb(self.color)
+        if self.color and self.color.upper() not in {"BYLAYER", "BYBLOCK"}:
+            if self.color.isdigit():
+                try:
+                    attribs["color"] = int(self.color)
+                except ValueError:
+                    pass  # 숫자가 아니면 무시
+            elif self.color.startswith("#"):
+                attribs["true_color"] = parse_rgb(self.color)
         if self.linetype and self.linetype.upper() != "BYLAYER":
             attribs["linetype"] = self.linetype
         if self.lineweight_mm is not None:
@@ -135,4 +141,3 @@ def parse_rgb(value: str) -> int:
 def lineweight_to_hundredths_mm(weight_mm: float) -> int:
     """Convert millimeter lineweight to DXF integer (1/100 mm)."""
     return int(round(weight_mm * 100))
-

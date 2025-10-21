@@ -4,11 +4,46 @@ import math
 from typing import Iterable, List, Tuple
 
 import ezdxf
-from ezdxf import colors
+from ezdxf import colors as ezdxf_colors
 
 from .mapping import MappingManager
 from .models import ConversionOptions, ConversionResult, LayerAttributes, SvgDocument, SvgPrimitive, parse_rgb
 from .svg_loader import parse_length
+
+# AutoCAD Color Index (ACI) to RGB mapping for standard colors
+ACI_TO_RGB = {
+    1: (255, 0, 0),  # Red
+    2: (255, 255, 0),  # Yellow
+    3: (0, 255, 0),  # Green
+    4: (0, 255, 255),  # Cyan
+    5: (0, 0, 255),  # Blue
+    6: (255, 0, 255),  # Magenta
+    7: (255, 255, 255),  # White/Black
+    8: (128, 128, 128),  # Gray
+    9: (192, 192, 192),  # Light Gray
+    # ... other colors can be added if needed
+}
+
+
+def rgb_to_aci(rgb: Tuple[int, int, int]) -> int:
+    """Finds the closest ACI color for a given RGB tuple."""
+    min_dist = float("inf")
+    closest_aci = 7  # Default to white/black
+
+    # First, check for an exact match in the standard palette
+    for aci, aci_rgb in ACI_TO_RGB.items():
+        if aci_rgb == rgb:
+            return aci
+
+    # If no exact match, find the closest color by Euclidean distance
+    # This is a simplified approach. ezdxf has a more sophisticated one.
+    for aci, aci_rgb in ACI_TO_RGB.items():
+        dist = sum([(c1 - c2) ** 2 for c1, c2 in zip(rgb, aci_rgb)])
+        if dist < min_dist:
+            min_dist = dist
+            closest_aci = aci
+    return closest_aci
+
 
 class DxfWriter:
     """Create DXF documents from SVG primitives."""
@@ -257,28 +292,51 @@ class DxfWriter:
         return style_name
 
     def _apply_entity_color(self, entity, color_spec: str | None, fallback_attrs: dict) -> None:
+        """Applies color to an entity from a color spec string (ACI or #RRGGBB)."""
         if not color_spec:
             if "true_color" in fallback_attrs:
-                entity.rgb = colors.int2rgb(fallback_attrs["true_color"])
+                entity.rgb = ezdxf_colors.int2rgb(fallback_attrs["true_color"])
             elif "color" in fallback_attrs:
                 entity.dxf.color = fallback_attrs["color"]
             return
+
         if color_spec.upper() in {"BYLAYER", "BYBLOCK"}:
+            # Let the entity inherit color from layer/block
             return
-        try:
-            rgb_int = parse_rgb(color_spec)
-        except ValueError:
-            return
-        entity.rgb = colors.int2rgb(rgb_int)
+
+        # ACI color index
+        if color_spec.isdigit():
+            try:
+                aci = int(color_spec)
+                if 1 <= aci <= 255:
+                    entity.dxf.color = aci
+                return
+            except ValueError:
+                pass  # Fallback to other formats
+
+        # Hex color string
+        if color_spec.startswith("#"):
+            try:
+                rgb_int = parse_rgb(color_spec)
+                entity.rgb = ezdxf_colors.int2rgb(rgb_int)
+            except ValueError:
+                pass  # Invalid hex, do nothing
 
 
 def ensure_layer(doc: ezdxf.EzDxf, layer_name: str, attrs: LayerAttributes) -> None:
     if layer_name in doc.layers:
         return
-    color = 7
-    if attrs.color and attrs.color.startswith("#"):
-        # Map to closest AutoCAD color index if possible; fallback to 7.
-        color = 7
+
+    color = 7  # Default to white/black
+    if attrs.color and attrs.color.isdigit():
+        color = int(attrs.color)
+    elif attrs.color and attrs.color.startswith("#"):
+        try:
+            rgb = ezdxf_colors.int2rgb(parse_rgb(attrs.color))
+            color = rgb_to_aci(rgb)
+        except (ValueError, TypeError):
+            color = 7
+
     doc.layers.add(name=layer_name, color=color, linetype=attrs.linetype or "Continuous")
 
 
