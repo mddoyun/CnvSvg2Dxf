@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+import math
 from pathlib import Path
 from typing import Dict, Iterable, List, Set, Tuple
 from urllib.parse import unquote, urlparse
@@ -473,6 +474,9 @@ class SvgLoader:
             extra={
                 "text": text_content,
                 "text_anchor": element.get("text-anchor", style.get("text-anchor")),
+                "rotation_deg": compute_rotation_degrees(transform),
+                "text_scale": compute_scale_factor(transform),
+                "font_family": extract_font_family(element, style),
             },
         )
         return [primitive], []
@@ -490,6 +494,34 @@ def extract_text_content(element: etree._Element) -> str:
             return "\n".join(lines)
     combined = " ".join("".join(element.itertext()).split())
     return combined
+
+
+def compute_rotation_degrees(transform: np.ndarray) -> float:
+    linear = transform[:2, :2]
+    vector = linear @ np.array([1.0, 0.0])
+    angle = math.degrees(math.atan2(vector[1], vector[0]))
+    return angle
+
+
+def compute_scale_factor(transform: np.ndarray) -> float:
+    linear = transform[:2, :2]
+    vector = linear @ np.array([1.0, 0.0])
+    scale = float(np.linalg.norm(vector))
+    if scale == 0:
+        return 1.0
+    return scale
+
+
+def extract_font_family(element: etree._Element, style: Dict[str, str]) -> str | None:
+    value = element.get("font-family") or style.get("font-family")
+    if not value:
+        return None
+    families = [
+        part.strip(" '\"")
+        for part in value.split(",")
+        if part.strip(" '\"")
+    ]
+    return families[0] if families else None
 
 
 def parse_length(value: str | None) -> float:

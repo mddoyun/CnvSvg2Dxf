@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -24,6 +24,17 @@ from PyQt5.QtWidgets import (
 from ..mapping import MappingManager
 from ..models import MappingRule, SvgDocument
 from ..pipeline import PipelineController
+
+
+def sanitize_style_name(name: str) -> str:
+    sanitized = []
+    for ch in name.strip():
+        if ch.isalnum() or ch in "-_":
+            sanitized.append(ch)
+        elif ch == " ":
+            sanitized.append("_")
+    value = "".join(sanitized)
+    return value[:31] if value else "STANDARD"
 
 
 class MainWindow(QMainWindow):
@@ -136,19 +147,133 @@ class MainWindow(QMainWindow):
         helper.setWordWrap(True)
         tab_layout.addWidget(helper)
 
+        tab_layout.addSpacing(16)
+        tab_layout.addWidget(QLabel("재료 레이어 매핑 (.material-* 클래스)"))
+        self.material_table = QTableWidget(0, 5)
+        self.material_table.setHorizontalHeaderLabels(["Material Class", "Layer", "Color", "Linetype", "Lineweight (mm)"])
+        self.material_table.horizontalHeader().setStretchLastSection(True)
+        tab_layout.addWidget(self.material_table)
+
+        material_btn_layout = QHBoxLayout()
+        material_add = QPushButton("재료 추가")
+        material_add.clicked.connect(self._add_material_entry)
+        material_remove = QPushButton("선택 삭제")
+        material_remove.clicked.connect(self._remove_material_entry)
+        material_btn_layout.addWidget(material_add)
+        material_btn_layout.addWidget(material_remove)
+        material_btn_layout.addStretch()
+        tab_layout.addLayout(material_btn_layout)
+
+        material_helper = QLabel("예: material-concrete → A-CONC, 색상은 #RRGGBB 또는 BYLAYER 입력")
+        material_helper.setWordWrap(True)
+        tab_layout.addWidget(material_helper)
+
+        tab_layout.addSpacing(16)
+        tab_layout.addWidget(QLabel("패턴 매핑 (fill: url(#pattern))"))
+        self.pattern_table = QTableWidget(0, 6)
+        self.pattern_table.setHorizontalHeaderLabels(["Pattern ID", "DXF Pattern", "Scale", "Angle", "Color", "Solid"])
+        self.pattern_table.horizontalHeader().setStretchLastSection(True)
+        tab_layout.addWidget(self.pattern_table)
+
+        pattern_btn_layout = QHBoxLayout()
+        pattern_add = QPushButton("패턴 추가")
+        pattern_add.clicked.connect(self._add_pattern_entry)
+        pattern_remove = QPushButton("선택 삭제")
+        pattern_remove.clicked.connect(self._remove_pattern_entry)
+        pattern_btn_layout.addWidget(pattern_add)
+        pattern_btn_layout.addWidget(pattern_remove)
+        pattern_btn_layout.addStretch()
+        tab_layout.addLayout(pattern_btn_layout)
+
+        pattern_helper = QLabel("패턴 ID는 SVG의 <pattern id> 값입니다. Solid 는 'Y' 또는 'N'.")
+        pattern_helper.setWordWrap(True)
+        tab_layout.addWidget(pattern_helper)
+
+        tab_layout.addSpacing(16)
+        tab_layout.addWidget(QLabel("폰트 매핑 (font-family)"))
+        self.font_table = QTableWidget(0, 3)
+        self.font_table.setHorizontalHeaderLabels(["Font Family", "DXF Text Style", "Font File"])
+        self.font_table.horizontalHeader().setStretchLastSection(True)
+        tab_layout.addWidget(self.font_table)
+
+        font_btn_layout = QHBoxLayout()
+        font_add = QPushButton("폰트 추가")
+        font_add.clicked.connect(self._add_font_entry)
+        font_remove = QPushButton("선택 삭제")
+        font_remove.clicked.connect(self._remove_font_entry)
+        font_btn_layout.addWidget(font_add)
+        font_btn_layout.addWidget(font_remove)
+        font_btn_layout.addStretch()
+        tab_layout.addLayout(font_btn_layout)
+
+        font_helper = QLabel("SVG font-family 값과 사용할 DXF Text Style/폰트 파일을 매핑하세요.")
+        font_helper.setWordWrap(True)
+        tab_layout.addWidget(font_helper)
+
+        self.save_mapping_btn = QPushButton("맵핑 저장")
+        self.save_mapping_btn.clicked.connect(self._save_mapping_config)
+        tab_layout.addWidget(self.save_mapping_btn, alignment=Qt.AlignRight)
+
         self.tabs.addTab(tab, "레이어 매핑")
 
     def _populate_default_rules(self) -> None:
         self.rules_table.setRowCount(0)
         for rule in self.controller.default_rules():
             self._insert_rule_row(rule)
+        self._populate_material_table()
+        self._populate_pattern_table()
+        self._populate_font_table()
 
     def _insert_rule_row(self, rule: MappingRule) -> None:
         row = self.rules_table.rowCount()
         self.rules_table.insertRow(row)
         for column, value in enumerate(rule.as_row()):
-            item = QTableWidgetItem(value)
-            self.rules_table.setItem(row, column, item)
+            self._set_table_item(self.rules_table, row, column, value)
+
+    def _set_table_item(self, table: QTableWidget, row: int, column: int, value: Any) -> None:
+        text = "" if value is None else str(value)
+        table.setItem(row, column, QTableWidgetItem(text))
+
+    def _populate_material_table(self) -> None:
+        self.material_table.setRowCount(0)
+        materials = self.controller.get_material_map()
+        for material in sorted(materials.keys()):
+            entry = materials[material]
+            row = self.material_table.rowCount()
+            self.material_table.insertRow(row)
+            self._set_table_item(self.material_table, row, 0, material)
+            self._set_table_item(self.material_table, row, 1, entry.get("layer", ""))
+            self._set_table_item(self.material_table, row, 2, entry.get("color", ""))
+            self._set_table_item(self.material_table, row, 3, entry.get("linetype", ""))
+            self._set_table_item(self.material_table, row, 4, entry.get("lineweight", ""))
+
+    def _populate_pattern_table(self) -> None:
+        self.pattern_table.setRowCount(0)
+        patterns = self.controller.get_pattern_map()
+        for pattern_id in sorted(patterns.keys()):
+            entry = patterns[pattern_id]
+            row = self.pattern_table.rowCount()
+            self.pattern_table.insertRow(row)
+            self._set_table_item(self.pattern_table, row, 0, pattern_id)
+            self._set_table_item(self.pattern_table, row, 1, entry.get("pattern", ""))
+            self._set_table_item(self.pattern_table, row, 2, entry.get("scale", ""))
+            self._set_table_item(self.pattern_table, row, 3, entry.get("angle", ""))
+            self._set_table_item(self.pattern_table, row, 4, entry.get("color", ""))
+            solid_value = entry.get("solid", "")
+            if isinstance(solid_value, bool):
+                solid_value = "Y" if solid_value else "N"
+            self._set_table_item(self.pattern_table, row, 5, solid_value)
+
+    def _populate_font_table(self) -> None:
+        self.font_table.setRowCount(0)
+        fonts = self.controller.get_font_map()
+        for family in sorted(fonts.keys()):
+            entry = fonts[family]
+            row = self.font_table.rowCount()
+            self.font_table.insertRow(row)
+            self._set_table_item(self.font_table, row, 0, family)
+            self._set_table_item(self.font_table, row, 1, entry.get("style", ""))
+            self._set_table_item(self.font_table, row, 2, entry.get("font", ""))
 
     # Slots / event handlers -------------------------------------------------
 
@@ -203,7 +328,7 @@ class MainWindow(QMainWindow):
             return
 
         output_path = Path(output_text)
-        rules = self._collect_rules_from_table()
+        rules = self._apply_mapping_changes(save=False)
 
         result = self.controller.convert(self.current_document, output_path, rules)
 
@@ -225,6 +350,8 @@ class MainWindow(QMainWindow):
         rules: List[MappingRule] = []
         for row in range(self.rules_table.rowCount()):
             selector = self._item_text(row, 0)
+            if not selector:
+                continue
             layer = self._item_text(row, 1) or "0"
             color = self._item_text(row, 2) or "BYLAYER"
             linetype = self._item_text(row, 3) or "Continuous"
@@ -236,26 +363,159 @@ class MainWindow(QMainWindow):
                 except ValueError:
                     self.log_output.appendPlainText(f"경고: 행 {row + 1}의 선굵기 값이 잘못되었습니다. ({weight_text})")
             rules.append(MappingRule(selector=selector, layer=layer, color=color, linetype=linetype, lineweight_mm=lineweight))
-        if not rules:
-            rules = MappingManager.default_rules()
         return rules
 
-    def _item_text(self, row: int, column: int) -> str:
-        item = self.rules_table.item(row, column)
+    def _collect_material_mapping(self) -> Dict[str, Dict[str, Any]]:
+        mapping: Dict[str, Dict[str, Any]] = {}
+        for row in range(self.material_table.rowCount()):
+            material = self._item_text(row, 0, self.material_table)
+            if not material:
+                continue
+            entry: Dict[str, Any] = {}
+            layer = self._item_text(row, 1, self.material_table)
+            if layer:
+                entry["layer"] = layer
+            color = self._item_text(row, 2, self.material_table)
+            if color:
+                entry["color"] = color
+            linetype = self._item_text(row, 3, self.material_table)
+            if linetype:
+                entry["linetype"] = linetype
+            weight_text = self._item_text(row, 4, self.material_table)
+            if weight_text:
+                entry["lineweight"] = weight_text
+            if entry:
+                mapping[material] = entry
+        return mapping
+
+    def _collect_pattern_mapping(self) -> Dict[str, Dict[str, Any]]:
+        mapping: Dict[str, Dict[str, Any]] = {}
+        for row in range(self.pattern_table.rowCount()):
+            pattern_id = self._item_text(row, 0, self.pattern_table)
+            if not pattern_id:
+                continue
+            entry: Dict[str, Any] = {}
+            pattern_name = self._item_text(row, 1, self.pattern_table)
+            if pattern_name:
+                entry["pattern"] = pattern_name
+            scale_text = self._item_text(row, 2, self.pattern_table)
+            if scale_text:
+                try:
+                    entry["scale"] = float(scale_text)
+                except ValueError:
+                    self.log_output.appendPlainText(f"경고: 패턴 '{pattern_id}'의 Scale 값을 해석할 수 없습니다: {scale_text}")
+            angle_text = self._item_text(row, 3, self.pattern_table)
+            if angle_text:
+                try:
+                    entry["angle"] = float(angle_text)
+                except ValueError:
+                    self.log_output.appendPlainText(f"경고: 패턴 '{pattern_id}'의 Angle 값을 해석할 수 없습니다: {angle_text}")
+            color = self._item_text(row, 4, self.pattern_table)
+            if color:
+                entry["color"] = color
+            solid_text = self._item_text(row, 5, self.pattern_table)
+            if solid_text:
+                entry["solid"] = solid_text
+            if entry:
+                mapping[pattern_id] = entry
+        return mapping
+
+    def _collect_font_mapping(self) -> Dict[str, Dict[str, Any]]:
+        mapping: Dict[str, Dict[str, Any]] = {}
+        for row in range(self.font_table.rowCount()):
+            family = self._item_text(row, 0, self.font_table)
+            if not family:
+                continue
+            entry: Dict[str, Any] = {}
+            style = self._item_text(row, 1, self.font_table)
+            if style:
+                entry["style"] = style
+            font_file = self._item_text(row, 2, self.font_table)
+            if font_file:
+                entry["font"] = font_file
+            if "style" not in entry or not entry["style"]:
+                entry["style"] = sanitize_style_name(family)
+            mapping[family] = entry
+        return mapping
+
+    def _item_text(self, row: int, column: int, table: QTableWidget | None = None) -> str:
+        widget_table = table or self.rules_table
+        item = widget_table.item(row, column)
         return item.text().strip() if item and item.text() else ""
 
     def _add_rule(self) -> None:
         self._insert_rule_row(MappingRule(selector="class:", layer="0"))
 
     def _remove_rule(self) -> None:
-        selected_rows = sorted({idx.row() for idx in self.rules_table.selectedIndexes()}, reverse=True)
+        self._remove_selected_rows(self.rules_table)
+
+    def _add_material_entry(self) -> None:
+        row = self.material_table.rowCount()
+        self.material_table.insertRow(row)
+        for column in range(5):
+            self._set_table_item(self.material_table, row, column, "")
+
+    def _remove_material_entry(self) -> None:
+        self._remove_selected_rows(self.material_table)
+
+    def _add_pattern_entry(self) -> None:
+        row = self.pattern_table.rowCount()
+        self.pattern_table.insertRow(row)
+        for column in range(6):
+            default = "N" if column == 5 else ""
+            self._set_table_item(self.pattern_table, row, column, default)
+
+    def _remove_pattern_entry(self) -> None:
+        self._remove_selected_rows(self.pattern_table)
+
+    def _add_font_entry(self) -> None:
+        row = self.font_table.rowCount()
+        self.font_table.insertRow(row)
+        for column in range(3):
+            self._set_table_item(self.font_table, row, column, "")
+
+    def _remove_font_entry(self) -> None:
+        self._remove_selected_rows(self.font_table)
+
+    def _remove_selected_rows(self, table: QTableWidget) -> None:
+        selected_rows = sorted({idx.row() for idx in table.selectedIndexes()}, reverse=True)
         for row in selected_rows:
-            self.rules_table.removeRow(row)
+            table.removeRow(row)
+
+    def _apply_mapping_changes(self, save: bool) -> List[MappingRule]:
+        rules = self._collect_rules_from_table()
+        materials = self._collect_material_mapping()
+        patterns = self._collect_pattern_mapping()
+        fonts = self._collect_font_mapping()
+
+        if not rules:
+            rules = MappingManager.default_rules()
+
+        self.controller.mapping_manager.rules = list(rules)
+        self.controller.update_mapping_config(materials, patterns, fonts)
+
+        if save:
+            self.controller.save_mapping_config()
+            self.statusBar().showMessage("맵핑 설정을 저장했습니다.", 3000)
+
+        return rules
+
+    def _save_mapping_config(self) -> None:
+        self._apply_mapping_changes(save=True)
+        self._populate_material_table()
+        self._populate_pattern_table()
+        self._populate_font_table()
 
     def _reset_rules(self) -> None:
-        self._populate_default_rules()
+        default_rules = MappingManager.default_rules()
+        self.controller.mapping_manager.rules = list(default_rules)
+        self.rules_table.setRowCount(0)
+        for rule in default_rules:
+            self._insert_rule_row(rule)
+        self._populate_material_table()
+        self._populate_pattern_table()
+        self._populate_font_table()
 
     def _show_error(self, message: str) -> None:
         QMessageBox.warning(self, "확인", message)
         self.statusBar().showMessage(message, 5000)
-
